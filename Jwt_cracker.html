@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JWT Cracker</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #000000, #3533cd);
+            color: #ffffff;
+        }
+        .container {
+            background: rgba(0, 0, 0, 0.85);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+            backdrop-filter: blur(10px);
+        }
+        h2 {
+            margin-bottom: 20px;
+            font-size: 28px;
+            color: #3533cd;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            margin: 15px 0;
+            font-size: 16px;
+            border: 2px solid #3533cd;
+            border-radius: 8px;
+            background: #1a1a1a;
+            color: #ffffff;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            border-color: #ffffff;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            background: #3533cd;
+            color: #ffffff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #ffffff;
+            color: #000000;
+        }
+        #output {
+            font-size: 14px;
+            margin: 15px 0;
+            color: #d3d3d3;
+            line-height: 1.5;
+            text-align: left;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 6px;
+        }
+        @media (max-width: 500px) {
+            .container {
+                padding: 20px;
+                width: 95%;
+            }
+            h2 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>JWT Cracker</h2>
+        <input type="text" id="token" placeholder="Enter JWT token">
+        <input type="file" id="wordlist" accept=".txt">
+        <button onclick="runCracker()">Analyze & Crack</button>
+        <div id="output">Results will appear here...</div>
+    </div>
+
+    <script>
+        async function loadPyodideAndRun() {
+            const pyodide = await loadPyodide();
+            await pyodide.loadPackage("pyjwt");
+            return pyodide;
+        }
+
+        async function runCracker() {
+            const token = document.getElementById("token").value;
+            const wordlistFile = document.getElementById("wordlist").files[0];
+            const output = document.getElementById("output");
+
+            if (!token || !wordlistFile) {
+                output.innerHTML = "Please provide both a JWT token and a wordlist file.";
+                return;
+            }
+
+            output.innerHTML = "Loading Pyodide and processing...";
+            const pyodide = await loadPyodideAndRun();
+
+            // Read wordlist file
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const wordlist = e.target.result;
+                const pythonCode = `
+import jwt
+import hmac
+import hashlib
+import base64
+import sys
+from io import StringIO
+
+def decode_jwt(token):
+    try:
+        header = jwt.get_unverified_header(token)
+        payload = jwt.decode(token, options={"verify_signature": False})
+        return header, payload, None
+    except jwt.InvalidTokenError:
+        return None, None, "Invalid JWT token provided."
+    except Exception as e:
+        return None, None, f"Error during decoding: {str(e)}"
+
+def check_none_alg(header):
+    alg = header.get("alg")
+    if alg == "none":
+        return "Warning: Token uses 'none' algorithm - vulnerable to forgery!"
+    return f"Algorithm: {alg}"
+
+def crack_jwt(token, wordlist):
+    try:
+        header, payload, signature = token.split(".")
+    except ValueError:
+        return "Invalid JWT format (must contain header.payload.signature)."
+
+    for secret in wordlist.splitlines():
+        secret = secret.strip()
+        if not secret:
+            continue
+        message = f"{header}.{payload}"
+        generated_signature = base64.urlsafe_b64encode(
+            hmac.new(secret.encode(), message.encode(), hashlib.sha256).digest()
+        ).decode().rstrip("=")
+        if generated_signature == signature:
+            return f"Secret found: {secret}"
+    return "Secret not found"
+
+# Main execution
+token = "${token}"
+wordlist = """${wordlist}"""
+output = StringIO()
+
+header, payload, error = decode_jwt(token)
+if error:
+    print(error, file=output)
+else:
+    print("Header: " + str(header), file=output)
+    print("Payload: " + str(payload), file=output)
+    print(check_none_alg(header), file=output)
+    if header.get("alg") == "HS256":
+        print("Attempting to crack HS256 secret...", file=output)
+        result = crack_jwt(token, wordlist)
+        print(result, file=output)
+    else:
+        print(f"Token uses {header.get('alg')} algorithm; cracking only supported for HS256.", file=output)
+
+output.getvalue()
+                `;
+
+                try {
+                    const result = await pyodide.runPythonAsync(pythonCode);
+                    output.innerHTML = result.replace(/\n/g, "<br>");
+                } catch (e) {
+                    output.innerHTML = `Error: ${e.message}`;
+                }
+            };
+            reader.readAsText(wordlistFile);
+        }
+    </script>
+</body>
+</html>
